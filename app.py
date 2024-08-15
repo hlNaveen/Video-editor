@@ -1,100 +1,159 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QSlider, QLabel
-from PyQt5.QtCore import Qt
-from moviepy.editor import VideoFileClip, concatenate_videoclips
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QFileDialog, QVBoxLayout, QHBoxLayout,
+                             QWidget, QPushButton, QSlider, QLabel, QStyle, QToolBar, QAction, QStatusBar)
+from PyQt5.QtCore import Qt, QUrl  # Import QUrl
+from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+from PyQt5.QtMultimediaWidgets import QVideoWidget
+from moviepy.editor import VideoFileClip
+
 
 class VideoEditor(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("PyQt5 Video Editor")
-        self.setGeometry(100, 100, 1200, 600)
+        self.setWindowTitle("Advanced Video Editor")
+        self.setGeometry(100, 100, 1280, 720)
 
+        # Video playback components
+        self.media_player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
+        self.video_widget = QVideoWidget()
+
+        # Video clip and editing parameters
         self.video_clip = None
-        self.video_clips = []
-        self.final_clip = None
+        self.in_point = None
+        self.out_point = None
 
-        self.initUI()
+        # Initialize UI
+        self.init_ui()
 
-    def initUI(self):
-        # Main Layout
+    def init_ui(self):
+        # Main layout
         main_layout = QVBoxLayout()
 
-        # Video Control Layout
+        # Video display
+        main_layout.addWidget(self.video_widget)
+        self.media_player.setVideoOutput(self.video_widget)
+
+        # Playback controls
         control_layout = QHBoxLayout()
 
-        self.load_button = QPushButton("Load Video", self)
-        self.load_button.clicked.connect(self.load_video)
-        control_layout.addWidget(self.load_button)
+        self.play_button = QPushButton()
+        self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+        self.play_button.clicked.connect(self.play_pause_video)
+        control_layout.addWidget(self.play_button)
 
-        self.cut_button = QPushButton("Cut Video", self)
-        self.cut_button.clicked.connect(self.cut_video)
-        control_layout.addWidget(self.cut_button)
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(0, 0)
+        self.slider.sliderMoved.connect(self.set_position)
+        control_layout.addWidget(self.slider)
 
-        self.concat_button = QPushButton("Concatenate Videos", self)
-        self.concat_button.clicked.connect(self.concatenate_videos)
-        control_layout.addWidget(self.concat_button)
-
-        self.export_button = QPushButton("Export Video", self)
-        self.export_button.clicked.connect(self.export_video)
-        control_layout.addWidget(self.export_button)
+        self.position_label = QLabel("00:00")
+        control_layout.addWidget(self.position_label)
 
         main_layout.addLayout(control_layout)
 
-        # Timeline Slider
-        self.timeline_slider = QSlider(Qt.Horizontal)
-        self.timeline_slider.setRange(0, 100)
-        self.timeline_slider.setValue(0)
-        self.timeline_slider.sliderMoved.connect(self.slider_moved)
-        main_layout.addWidget(self.timeline_slider)
+        # Editing tools
+        edit_layout = QHBoxLayout()
 
-        # Status Label
-        self.status_label = QLabel("No video loaded.", self)
-        main_layout.addWidget(self.status_label)
+        self.set_in_button = QPushButton("Set In Point")
+        self.set_in_button.clicked.connect(self.set_in_point)
+        edit_layout.addWidget(self.set_in_button)
 
-        # Set Main Widget
-        main_widget = QWidget()
-        main_widget.setLayout(main_layout)
-        self.setCentralWidget(main_widget)
+        self.set_out_button = QPushButton("Set Out Point")
+        self.set_out_button.clicked.connect(self.set_out_point)
+        edit_layout.addWidget(self.set_out_button)
+
+        self.cut_button = QPushButton("Cut Video")
+        self.cut_button.clicked.connect(self.cut_video)
+        edit_layout.addWidget(self.cut_button)
+
+        self.preview_button = QPushButton("Preview")
+        self.preview_button.clicked.connect(self.preview_edit)
+        edit_layout.addWidget(self.preview_button)
+
+        self.export_button = QPushButton("Export")
+        self.export_button.clicked.connect(self.export_video)
+        edit_layout.addWidget(self.export_button)
+
+        main_layout.addLayout(edit_layout)
+
+        # Set central widget
+        container = QWidget()
+        container.setLayout(main_layout)
+        self.setCentralWidget(container)
+
+        # Menu bar
+        toolbar = QToolBar("Main Toolbar")
+        self.addToolBar(toolbar)
+
+        open_action = QAction("Open Video", self)
+        open_action.triggered.connect(self.load_video)
+        toolbar.addAction(open_action)
+
+        # Status bar
+        self.setStatusBar(QStatusBar(self))
+
+        # Media player signals
+        self.media_player.positionChanged.connect(self.update_position)
+        self.media_player.durationChanged.connect(self.update_duration)
 
     def load_video(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Load Video", "", "Video Files (*.mp4 *.avi *.mov *.mkv)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Video", "", "Video Files (*.mp4 *.avi *.mov *.mkv)")
         if file_path:
             self.video_clip = VideoFileClip(file_path)
-            self.status_label.setText(f"Loaded video: {file_path.split('/')[-1]}")
-            self.timeline_slider.setRange(0, int(self.video_clip.duration * 100))
-            self.timeline_slider.setValue(0)
+            self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(file_path)))  # QUrl is now defined
+            self.play_button.setEnabled(True)
+            self.statusBar().showMessage(f"Loaded video: {file_path.split('/')[-1]}")
 
-    def slider_moved(self, position):
+    def play_pause_video(self):
+        if self.media_player.state() == QMediaPlayer.PlayingState:
+            self.media_player.pause()
+            self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+        else:
+            self.media_player.play()
+            self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+
+    def set_position(self, position):
+        self.media_player.setPosition(position)
+
+    def update_position(self, position):
+        self.slider.setValue(position)
+        self.position_label.setText(f"{position//60000}:{(position//1000)%60:02}")
+
+    def update_duration(self, duration):
+        self.slider.setRange(0, duration)
+
+    def set_in_point(self):
         if self.video_clip:
-            current_time = position / 100
-            self.status_label.setText(f"Current time: {current_time:.2f} sec")
+            self.in_point = self.media_player.position() / 1000
+            self.statusBar().showMessage(f"Set In Point: {self.in_point:.2f} sec")
+
+    def set_out_point(self):
+        if self.video_clip:
+            self.out_point = self.media_player.position() / 1000
+            self.statusBar().showMessage(f"Set Out Point: {self.out_point:.2f} sec")
 
     def cut_video(self):
-        if self.video_clip:
-            start_time = self.timeline_slider.value() / 100
-            end_time = min(start_time + 5, self.video_clip.duration)  # Cut a 5-second segment
-            cut_clip = self.video_clip.subclip(start_time, end_time)
-            self.video_clips.append(cut_clip)
-            self.status_label.setText(f"Cut segment from {start_time:.2f} to {end_time:.2f} sec.")
-        else:
-            self.status_label.setText("Load a video first!")
+        if self.video_clip and self.in_point is not None and self.out_point is not None:
+            self.video_clip = self.video_clip.subclip(self.in_point, self.out_point)
+            self.statusBar().showMessage(f"Video cut from {self.in_point:.2f} to {self.out_point:.2f} sec.")
+            self.in_point, self.out_point = None, None  # Reset points
 
-    def concatenate_videos(self):
-        if self.video_clips:
-            self.final_clip = concatenate_videoclips(self.video_clips)
-            self.status_label.setText("Videos concatenated.")
-        else:
-            self.status_label.setText("No video segments to concatenate.")
+    def preview_edit(self):
+        if self.video_clip:
+            preview_file = "preview.mp4"
+            self.video_clip.write_videofile(preview_file)
+            self.media_player.setMedia(QMediaContent(QUrl.fromLocalFile(preview_file)))
+            self.media_player.play()
+            self.statusBar().showMessage("Previewing edited video...")
 
     def export_video(self):
-        if self.final_clip:
+        if self.video_clip:
             export_path, _ = QFileDialog.getSaveFileName(self, "Export Video", "", "MP4 Files (*.mp4)")
             if export_path:
-                self.final_clip.write_videofile(export_path)
-                self.status_label.setText(f"Exported video to {export_path}.")
-        else:
-            self.status_label.setText("No final video to export.")
+                self.video_clip.write_videofile(export_path)
+                self.statusBar().showMessage(f"Exported video to {export_path}.")
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
